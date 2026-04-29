@@ -78,8 +78,10 @@ The hook has two modes.
 
 In fast mode the hook injects the current user message plus the latest 3 completed session turns. Each turn contains:
 
-- `user_message`
-- `agent_reply_summary`
+- `user_message`: preserved in full for each of the latest 3 turns;
+- `agent_reply_summary`: only the first 1-3 non-empty lines of the assistant reply.
+
+The same prepared context is also passed to the `prompt-enhance` agent before full mode runs. This keeps full mode and fast mode consistent.
 
 ## Install
 
@@ -137,6 +139,10 @@ Environment variables:
 - `PROMPT_ENHANCE_REASONING`: reasoning effort used for full mode. Defaults to `medium`.
 - `PROMPT_ENHANCE_TIMEOUT_SECONDS`: timeout for full mode. Defaults to `120`.
 - `PROMPT_ENHANCE_RULES`: prompt rewriting rules file. Defaults to `$CODEX_HOME/prompts/prompt-rewriter.md`.
+- `PROMPT_ENHANCE_MAX_SESSION_TURNS`: completed session turns to include. Defaults to `3`.
+- `PROMPT_ENHANCE_AGENT_REPLY_SUMMARY_LINES`: assistant reply lines kept per turn. Defaults to `3`, clamped to `1..3`.
+- `PROMPT_ENHANCE_AGENT_REPLY_SUMMARY_CHARS`: maximum characters for each assistant reply summary. Defaults to `900`.
+- `PROMPT_ENHANCE_MAX_SESSION_CONTEXT_CHARS`: maximum characters for formatted recent session context. Defaults to `12000`.
 - `PROMPT_ENHANCE_FORCE_FULL=1`: always use full mode.
 - `PROMPT_ENHANCE_DRY_RUN=1`: do not call Codex; print the context that would be used.
 

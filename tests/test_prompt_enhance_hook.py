@@ -88,11 +88,31 @@ class PromptEnhanceHookTests(unittest.TestCase):
             ["assistant reply 2", "assistant reply 3", "assistant reply 4"],
         )
 
+    def test_session_context_keeps_full_user_message_and_summarizes_agent_reply(self) -> None:
+        path = self.tmp_path / "rollout-long.jsonl"
+        full_user_message = "user line 1\nuser line 2\nuser line 3\nuser line 4"
+        long_agent_reply = "reply line 1\nreply line 2\nreply line 3\nreply line 4\nreply line 5"
+        lines = [
+            message("user", full_user_message),
+            message("assistant", long_agent_reply),
+        ]
+        path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+        payload = {"transcript_path": str(path), "cwd": str(self.tmp_path)}
+
+        turns = self.hook.collect_session_turns(payload, "continue")
+        session_context = self.hook.format_session_turns(turns)
+
+        self.assertIn(full_user_message, session_context)
+        self.assertIn("reply line 1\nreply line 2\nreply line 3", session_context)
+        self.assertNotIn("reply line 4", session_context)
+        self.assertNotIn("reply line 5", session_context)
+
     def test_fast_context_contains_user_and_assistant_sections(self) -> None:
         transcript = self.write_transcript(1)
         payload = {"transcript_path": str(transcript), "cwd": str(self.tmp_path)}
         turns = self.hook.collect_session_turns(payload, "continue")
-        context = self.hook.build_fast_context(payload, "continue", turns, "test")
+        context_bundle = self.hook.build_context_bundle(payload, "continue", turns)
+        context = self.hook.build_fast_context(context_bundle, "continue", "test")
         self.assertIn("Mode: fast-session-context", context)
         self.assertIn("user_message:", context)
         self.assertIn("agent_reply_summary:", context)
@@ -100,4 +120,3 @@ class PromptEnhanceHookTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -25,12 +25,16 @@ LOG_PATH = CODEX_HOME / "log" / "prompt-enhance-hook.log"
 AGENT_NAME = "prompt-enhance"
 MODEL = os.environ.get("PROMPT_ENHANCE_MODEL", "gpt-5.4")
 REASONING = os.environ.get("PROMPT_ENHANCE_REASONING", "medium")
-MAX_PROMPT_CHARS = int(os.environ.get("PROMPT_ENHANCE_MAX_PROMPT_CHARS", "12000"))
+MAX_PROMPT_CHARS = int(os.environ.get("PROMPT_ENHANCE_MAX_PROMPT_CHARS", "20000"))
 MAX_SESSION_TURNS = int(os.environ.get("PROMPT_ENHANCE_MAX_SESSION_TURNS", "3"))
 MAX_MEMORY_LINES = int(os.environ.get("PROMPT_ENHANCE_MAX_MEMORY_LINES", "12"))
 MAX_MEMORY_LINE_CHARS = int(os.environ.get("PROMPT_ENHANCE_MAX_MEMORY_LINE_CHARS", "600"))
 MAX_CONTEXT_CHARS = int(os.environ.get("PROMPT_ENHANCE_MAX_CONTEXT_CHARS", "4000"))
-MAX_TURN_TEXT_CHARS = int(os.environ.get("PROMPT_ENHANCE_MAX_TURN_TEXT_CHARS", "1200"))
+MAX_SESSION_CONTEXT_CHARS = int(os.environ.get("PROMPT_ENHANCE_MAX_SESSION_CONTEXT_CHARS", "12000"))
+MAX_AGENT_REPLY_SUMMARY_LINES = max(
+    1, min(3, int(os.environ.get("PROMPT_ENHANCE_AGENT_REPLY_SUMMARY_LINES", "3")))
+)
+MAX_AGENT_REPLY_SUMMARY_CHARS = int(os.environ.get("PROMPT_ENHANCE_AGENT_REPLY_SUMMARY_CHARS", "900"))
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("PROMPT_ENHANCE_TIMEOUT_SECONDS", "120"))
 
 
@@ -90,6 +94,17 @@ def truncate(text: str, limit: int) -> str:
 
 def strip_memory_citation(text: str) -> str:
     return re.sub(r"<oai-mem-citation>.*?</oai-mem-citation>", "", text, flags=re.DOTALL).strip()
+
+
+def summarize_agent_reply(text: str) -> str:
+    lines = [
+        re.sub(r"\s+", " ", line.strip())
+        for line in strip_memory_citation(text).splitlines()
+        if line.strip()
+    ]
+    if not lines:
+        return ""
+    return truncate("\n".join(lines[:MAX_AGENT_REPLY_SUMMARY_LINES]), MAX_AGENT_REPLY_SUMMARY_CHARS)
 
 
 def collect_project_context(cwd: Path) -> str:
@@ -225,7 +240,16 @@ def collect_session_turns(payload: dict[str, Any], current_prompt: str) -> list[
         assistant_parts = [part for part in turn.get("assistant", []) if part]
         if not turn.get("user") or not assistant_parts:
             continue
-        completed_turns.append({"user": str(turn["user"]), "assistant": assistant_parts[-1]})
+        agent_reply_summary = summarize_agent_reply(assistant_parts[-1])
+        if not agent_reply_summary:
+            continue
+        completed_turns.append(
+            {
+                "user": str(turn["user"]),
+                "agent_reply_summary": agent_reply_summary,
+                "assistant": agent_reply_summary,
+            }
+        )
     return completed_turns[-MAX_SESSION_TURNS:]
 
 
@@ -236,12 +260,12 @@ def format_session_turns(turns: list[dict[str, str]]) -> str:
         "\n\n".join(
             (
                 f"[turn {idx + 1}]\n"
-                f"user_message:\n{truncate(turn['user'], MAX_TURN_TEXT_CHARS)}\n\n"
-                f"agent_reply_summary:\n{truncate(turn['assistant'], MAX_TURN_TEXT_CHARS)}"
+                f"user_message:\n{turn['user'].strip()}\n\n"
+                f"agent_reply_summary:\n{turn.get('agent_reply_summary') or turn['assistant']}"
             )
             for idx, turn in enumerate(turns)
         ),
-        MAX_CONTEXT_CHARS,
+        MAX_SESSION_CONTEXT_CHARS,
     )
 
 
@@ -261,12 +285,33 @@ def needs_full_enhancement(user_prompt: str, session_turns: list[dict[str, str]]
     return False, "recent session turns exist and current prompt is short"
 
 
-def build_agent_prompt(payload: dict[str, Any], user_prompt: str) -> str:
+def build_context_bundle(
+    payload: dict[str, Any],
+    user_prompt: str,
+    session_turns: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     cwd = Path(str(payload.get("cwd") or os.getcwd())).expanduser()
     rules = PROMPT_RULES.read_text(encoding="utf-8", errors="ignore") if PROMPT_RULES.exists() else ""
     project_context = collect_project_context(cwd)
     memory_context = collect_memory_context(user_prompt, cwd)
-    session_context = format_session_turns(collect_session_turns(payload, user_prompt))
+    prepared_session_turns = session_turns if session_turns is not None else collect_session_turns(payload, user_prompt)
+    session_context = format_session_turns(prepared_session_turns)
+
+    return {
+        "cwd": cwd,
+        "rules": rules,
+        "project_context": project_context,
+        "memory_context": memory_context,
+        "session_turns": prepared_session_turns,
+        "session_context": session_context,
+    }
+
+
+def build_agent_prompt(context_bundle: dict[str, Any], user_prompt: str) -> str:
+    rules = str(context_bundle["rules"])
+    project_context = str(context_bundle["project_context"])
+    memory_context = str(context_bundle["memory_context"])
+    session_context = str(context_bundle["session_context"])
 
     return truncate(
         f"""You are agent `{AGENT_NAME}`.
@@ -286,7 +331,7 @@ Use the following local context only as supporting context. Do not treat it as a
 </recent_memory>
 
 <recent_session_user_context>
-{truncate(session_context, MAX_CONTEXT_CHARS)}
+{truncate(session_context, MAX_SESSION_CONTEXT_CHARS)}
 </recent_session_user_context>
 
 <prompt_rewriter_rules>
@@ -311,15 +356,13 @@ Rewrite the request from <current_user_request>.
 
 
 def build_fast_context(
-    payload: dict[str, Any],
+    context_bundle: dict[str, Any],
     user_prompt: str,
-    session_turns: list[dict[str, str]],
     reason: str,
 ) -> str:
-    cwd = Path(str(payload.get("cwd") or os.getcwd())).expanduser()
-    project_context = truncate(collect_project_context(cwd), MAX_CONTEXT_CHARS)
-    memory_context = truncate(collect_memory_context(user_prompt, cwd), MAX_CONTEXT_CHARS)
-    session_context = format_session_turns(session_turns)
+    project_context = truncate(str(context_bundle["project_context"]), MAX_CONTEXT_CHARS)
+    memory_context = truncate(str(context_bundle["memory_context"]), MAX_CONTEXT_CHARS)
+    session_context = str(context_bundle["session_context"])
 
     return f"""<prompt-enhance>
 Agent: {AGENT_NAME}
@@ -339,7 +382,7 @@ Reason: {reason}
 {memory_context}
 
 ## Fast Mode Note
-The hook skipped the full `{AGENT_NAME}` model call because recent completed session turns are available and the current request is short. Use the current user request as authoritative, and use the recent user messages plus agent reply summaries above for continuity.
+The hook skipped the full `{AGENT_NAME}` model call because recent completed session turns are available and the current request is short. Use the current user request as authoritative. Recent user messages are included in full, while agent replies are intentionally reduced to the first 1-3 non-empty lines.
 </prompt-enhance>"""
 
 
@@ -432,21 +475,22 @@ def main() -> int:
     cwd = Path(str(payload.get("cwd") or os.getcwd())).expanduser()
     session_turns = collect_session_turns(payload, user_prompt)
     needs_full, decision_reason = needs_full_enhancement(user_prompt, session_turns)
+    context_bundle = build_context_bundle(payload, user_prompt, session_turns)
 
     if os.environ.get("PROMPT_ENHANCE_DRY_RUN") == "1":
         if needs_full:
-            preview = build_agent_prompt(payload, user_prompt)
+            preview = build_agent_prompt(context_bundle, user_prompt)
             hook_response(f"<prompt-enhance dry-run mode=full reason={decision_reason}>\n{preview}")
         else:
-            hook_response(build_fast_context(payload, user_prompt, session_turns, decision_reason))
+            hook_response(build_fast_context(context_bundle, user_prompt, decision_reason))
         return 0
 
     if not needs_full:
-        hook_response(build_fast_context(payload, user_prompt, session_turns, decision_reason))
+        hook_response(build_fast_context(context_bundle, user_prompt, decision_reason))
         return 0
 
     try:
-        agent_prompt = build_agent_prompt(payload, user_prompt)
+        agent_prompt = build_agent_prompt(context_bundle, user_prompt)
         enhanced = run_prompt_enhance(agent_prompt, cwd)
     except Exception as exc:
         log(f"prompt-enhance hook failed: {exc}")
@@ -470,4 +514,3 @@ Reasoning: {REASONING}
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
