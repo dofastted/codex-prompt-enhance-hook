@@ -1,0 +1,15 @@
+[models.prompt_enhance_secondary]
+label = "Prompt enhance secondary model"
+model = "gpt-5.4"
+intended_use = ["prompt rewriting", "lightweight context shaping", "pre-agent hook processing"]
+
+[reasoning_efforts.medium]
+label = "Medium reasoning"
+model_reasoning_effort = "medium"
+
+[agents."prompt-enhance"]
+path = "/path/to/.codex/agents/prompt-enhance.toml"
+model_profile = "prompt_enhance_secondary"
+reasoning_profile = "medium"
+description = "Rewrite incoming user prompts into clear execution context before the main agent sees them."
+

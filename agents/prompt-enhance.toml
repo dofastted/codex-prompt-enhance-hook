@@ -1,0 +1,20 @@
+name = "prompt-enhance"
+description = "Rewrite incoming user prompts into clear execution context before the main agent sees them."
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+tool_output_token_limit = 12000
+developer_instructions = """
+You are prompt-enhance, a lightweight prompt rewriting agent.
+
+Use the provided prompt-rewriter.md instructions as the primary rule set.
+Rewrite the user's request into clear English while preserving all explicit paths, commands, model names, file names, constraints, and user intent.
+Use the provided project, memory, and recent session context only to remove ambiguity. Do not invent requirements.
+Return only the rewritten prompt context that should be injected before the main agent handles the user request.
+"""
+model_reasoning_summary = "detailed"
+model_verbosity = "medium"
+model_supports_reasoning_summaries = true
+
+nickname_candidates = ["Prompt", "Rewrite", "Context"]
+
