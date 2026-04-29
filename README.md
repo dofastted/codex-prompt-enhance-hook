@@ -11,6 +11,53 @@ The hook adds a `<prompt-enhance>` context block with:
 
 It is designed to be safe for open-source use. No API keys, private endpoints, or machine-specific paths are included.
 
+## Visual Usage Guide
+
+See [docs/usage-visual-guide.md](docs/usage-visual-guide.md) for the full visual walkthrough.
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="docs/usage-visual-guide.md#hook-flow">
+        <img src="docs/images/hook-flow.png" alt="Hook flow">
+      </a>
+      <br>
+      <strong>Hook flow</strong>
+      <br>
+      User message, hook, injected context, and main agent.
+    </td>
+    <td width="50%">
+      <a href="docs/usage-visual-guide.md#mode-selection">
+        <img src="docs/images/mode-selection.png" alt="Mode selection">
+      </a>
+      <br>
+      <strong>Mode selection</strong>
+      <br>
+      Full mode for richer prompts, fast mode for short follow-ups.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="docs/usage-visual-guide.md#install-and-verify">
+        <img src="docs/images/install-verify.png" alt="Install and verify">
+      </a>
+      <br>
+      <strong>Install and verify</strong>
+      <br>
+      Install files, run tests, and dry-run the hook.
+    </td>
+    <td width="50%">
+      <a href="docs/usage-visual-guide.md#injected-context">
+        <img src="docs/images/injected-context.png" alt="Injected context">
+      </a>
+      <br>
+      <strong>Injected context</strong>
+      <br>
+      Current request, project facts, memory, and latest 3 turns.
+    </td>
+  </tr>
+</table>
+
 ## Behavior
 
 The hook has two modes.
@@ -115,4 +162,3 @@ description = "Rewrite incoming user prompts into clear execution context before
 ## Notes
 
 `UserPromptSubmit` can add `hookSpecificOutput.additionalContext` before the main agent receives the user message. It does not replace the original user message. The main agent sees the original prompt plus this extra context block.
-
