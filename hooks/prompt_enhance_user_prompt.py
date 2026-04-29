@@ -12,7 +12,15 @@ from typing import Any
 
 
 def default_codex_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+    env_home = os.environ.get("CODEX_HOME")
+    if env_home:
+        return Path(env_home).expanduser()
+
+    installed_home = Path(__file__).resolve().parents[1]
+    if installed_home.name == ".codex" or (installed_home / "hooks.json").exists():
+        return installed_home
+
+    return Path.home() / ".codex"
 
 
 CODEX_HOME = default_codex_home()

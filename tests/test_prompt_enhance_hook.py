@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,14 @@ HOOK_PATH = ROOT / "hooks" / "prompt_enhance_user_prompt.py"
 
 def load_hook_module():
     spec = importlib.util.spec_from_file_location("prompt_enhance_user_prompt", HOOK_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_hook_module_from(path: Path, module_name: str = "prompt_enhance_user_prompt_installed"):
+    spec = importlib.util.spec_from_file_location(module_name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -69,6 +78,18 @@ class PromptEnhanceHookTests(unittest.TestCase):
         needs_full, reason = self.hook.needs_full_enhancement("continue", [])
         self.assertTrue(needs_full)
         self.assertIn("no completed session turns", reason)
+
+    def test_default_codex_home_uses_installed_codex_parent(self) -> None:
+        installed_hook = self.tmp_path / "installed" / ".codex" / "hooks" / "prompt_enhance_user_prompt.py"
+        installed_hook.parent.mkdir(parents=True)
+        shutil.copy2(HOOK_PATH, installed_hook)
+
+        os.environ.pop("CODEX_HOME", None)
+        try:
+            module = load_hook_module_from(installed_hook)
+            self.assertEqual(module.CODEX_HOME, installed_hook.parents[1])
+        finally:
+            os.environ["CODEX_HOME"] = str(self.codex_home)
 
     def test_short_followup_uses_fast_mode_when_session_exists(self) -> None:
         transcript = self.write_transcript(2)
